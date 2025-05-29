@@ -145,6 +145,7 @@ def websocket_send_message(message):
     lock.release()
 
 def main(config, module_callback):
+    asyncio.set_event_loop(asyncio.new_event_loop())
     server = start_app(config=config, module_callback=module_callback)
     ioloop = tornado.ioloop.IOLoop.current()
     asyncio.set_event_loop_policy(tornado.platform.asyncio.AnyThreadEventLoopPolicy())
