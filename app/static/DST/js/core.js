@@ -71,6 +71,10 @@ $(function () { // init tool tips and only show on hover
 	const inclusion_circles = []; 
 	// Array to store references to all exclusion circle fence primitives.
 	const exclusion_circles = []; 
+	// Array to store references to all inclusion polygon fence primitives.
+	const inclusion_fences = [];
+	// Array to store references to all exclusion polygon fence primitives.
+	const exclusion_fences = [];
     var home_alt_wgs84 = undefined;
     var data_stream = {};
     var flightmode = null;
@@ -120,6 +124,10 @@ $(function () { // init tool tips and only show on hover
 				draw_inclusion_circle(fence_item);
 			} else if (fence_item.command == CIRCLE_EXCLUSION) {
 				draw_exclusion_circle(fence_item);
+			} else if (fence_item.command == POLYGON_VERTEX_INCLUSION) {
+				parse_inclusion_vertex(fence_item);
+			} else if (fence_item.command == POLYGON_VERTEX_EXCLUSION) {
+				parse_exclusion_vertex(fence_item);
 			} else  {
 				console.warn("MISSION_ITEM is not yet supported: ", fence_item)
 			}
@@ -128,28 +136,41 @@ $(function () { // init tool tips and only show on hover
     }
 
 	function clear_fences() {
-
-		if (inclusion_circles.length === 0) {
-			console.warn("No inclusion circles to clear.");
-			return;
-		}
+		// Clear all internal fence state and remove all fence objects from the viewer.
 	
-		// Remove all circle primitives from the scene
-		inclusion_circles.forEach(circlePrimitive => {
-			viewer.scene.primitives.remove(circlePrimitive);
+		// Remove all circle primitives from the scene.
+		inclusion_circles.forEach(primitive => {
+			viewer.scene.primitives.remove(primitive);
 		});
-	
-		// Clear the array
 		inclusion_circles.length = 0;
+		exclusion_circles.forEach(primitive => {
+			viewer.scene.primitives.remove(primitive);
+		});
+		exclusion_circles.length = 0;
+
+		// Remove all polygon primitives from the scene.
+		inclusion_fences.forEach(primitive => {
+			viewer.scene.primitives.remove(primitive);
+		});
+		inclusion_fences.length = 0;
+		exclusion_fences.forEach(primitive => {
+			viewer.scene.primitives.remove(primitive);
+		});
+		exclusion_fences.length = 0;
+
+		// Reset the parser state.
+		inclusion_vertex_count = 0;
+		exclusion_vertex_count = 0;
+		fence_vertices.length = 0;
 	
-		console.log("All inclusion circles cleared.");
+		console.log("Fences have been cleared.");
 	}
 
 	function toggle_fences() {
-		// Remove all circle primitives from the scene
 		inclusion_circles.forEach(circlePrimitive => {
 			circlePrimitive.show = !circlePrimitive.show;
 		});	
+		// TODO
 	}
 
 	function draw_inclusion_circle(mission_item_circle) {
@@ -171,7 +192,7 @@ $(function () { // init tool tips and only show on hover
 			}
 		});
 
-		    // Create the primitive
+		// Create the primitive
 		const circlePrimitive = new Cesium.GroundPrimitive({
 			geometryInstances: circleInstance
 		});
@@ -202,7 +223,7 @@ $(function () { // init tool tips and only show on hover
 			}
 		});
 
-		    // Create the primitive
+		// Create the primitive
 		const circlePrimitive = new Cesium.GroundPrimitive({
 			geometryInstances: circleInstance
 		});
@@ -212,6 +233,113 @@ $(function () { // init tool tips and only show on hover
 
 		// Store the reference in the array
 		exclusion_circles.push(circlePrimitive);
+	}
+
+	var inclusion_vertex_count = 0;
+	var fence_vertices = [];
+	function parse_inclusion_vertex(mission_item) {
+		inclusion_vertex_count++;
+
+		fence_vertices.push(mission_item)
+		const expected_count = mission_item.param1;
+		if(expected_count == inclusion_vertex_count) {
+			console.log("Received the final item for the inclusion fence.")
+			draw_inclusion_fence(fence_vertices);
+			inclusion_vertex_count = 0;
+			fence_vertices.length = 0;
+		}
+	}
+
+	function draw_inclusion_fence(fence_vertices) {
+		// Given a mavlink MISSION_ITEM of
+		// type MAV_CMD_NAV_FENCE_POLYGON_VERTEX_INCLUSION, draw it.
+
+		const polygon_coord_arr = [];
+
+		fence_vertices.forEach(function (vertex, index) {
+			polygon_coord_arr.push(vertex.y, vertex.x);
+		});
+
+		const polygon = new Cesium.PolygonGeometry({
+			polygonHierarchy : new Cesium.PolygonHierarchy(
+				Cesium.Cartesian3.fromDegreesArray(
+					polygon_coord_arr
+				)
+			)
+		});
+
+		// Create the GeometryInstance
+		const polygon_instance = new Cesium.GeometryInstance({
+			geometry: polygon,
+			id: `inclusionFence-${inclusion_fences.length}`,
+			attributes: {
+				color: new Cesium.ColorGeometryInstanceAttribute(0.0, 1.0, 0.0, 0.15)
+			}
+		});
+
+		// Create the GroundPrimitive
+		const polygon_primitive = new Cesium.GroundPrimitive({
+			geometryInstances: polygon_instance
+		});
+		  
+		// Add the primitive to the scene
+		viewer.scene.primitives.add(polygon_primitive);
+
+		// Store the reference in the array
+		inclusion_fences.push(polygon_primitive);
+	}
+
+	var exclusion_vertex_count = 0;
+	function parse_exclusion_vertex(mission_item) {
+		exclusion_vertex_count++;
+
+		fence_vertices.push(mission_item)
+		const expected_count = mission_item.param1;
+		if(expected_count == exclusion_vertex_count) {
+			console.log("Received the final item for the exclusion fence.")
+			draw_exclusion_fence(fence_vertices);
+			exclusion_vertex_count = 0;
+			fence_vertices.length = 0;
+		}
+	}
+
+	function draw_exclusion_fence(fence_vertices) {
+		// Given a mavlink MISSION_ITEM of
+		// type MAV_CMD_NAV_FENCE_POLYGON_VERTEX_EXCLUSION, draw it.
+
+		const polygon_coord_arr = [];
+
+		fence_vertices.forEach(function (vertex, index) {
+			polygon_coord_arr.push(vertex.y, vertex.x);
+		});
+
+		const polygon = new Cesium.PolygonGeometry({
+			polygonHierarchy : new Cesium.PolygonHierarchy(
+				Cesium.Cartesian3.fromDegreesArray(
+					polygon_coord_arr
+				)
+			)
+		});
+
+		// Create the GeometryInstance
+		const polygon_instance = new Cesium.GeometryInstance({
+			geometry: polygon,
+			id: `exclusionFence-${exclusion_fences.length}`,
+			attributes: {
+				color: new Cesium.ColorGeometryInstanceAttribute(1.0, 0.0, 0.0, 0.15)
+			}
+		});
+
+		// Create the GroundPrimitive
+		const polygon_primitive = new Cesium.GroundPrimitive({
+			geometryInstances: polygon_instance
+		});
+		  
+		// Add the primitive to the scene
+		viewer.scene.primitives.add(polygon_primitive);
+
+		// Store the reference in the array
+		exclusion_fences.push(polygon_primitive);
 	}
     
     function update_mission_data(mision_data) {
